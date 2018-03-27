@@ -8,12 +8,11 @@ We will build an app that saves certain locations from a map. The places saved w
 
 - Setup Xcode + Create Project
 - Create GUI in Storyboard
-- Create Table view with basic logic
-- Add Map view and show user's location
+- Create Map + Table View Controllers
+- Show user's location
 - Show map pin on long press
-- Reverse Geocode location
+- Show saved locations as map pins
 - Add user's location to Table view
-- Add long press location to Table view
 
 ## Setup
 
@@ -131,7 +130,7 @@ It should add a new arrow, from the Table View to the Map View, with a circle ic
 
 The **Storyboard Entry Point** defines which scene or view appears first in the 'story', in this case on app launch. You can see it as the arrow [without a symbol] next to the seque arrow.
 
-Try pressing <kbd>command</kbd> + <kbd>r</kbd> to run our app.
+Try pressing <kbd>command</kbd> + <kbd>r</kbd> to run your app.
 
 ![xcode-simulator](img/xcode-simulator.png)
 
@@ -197,11 +196,11 @@ Name your new class MapViewController, subclass of UIViewController. You can cha
 
 Press **Next**. A window will appear, to specify where to add this new file. The default location should be fine. Press **Create**.
 
-### Add Button References
+### Add Button Outlets
 
 Now that we have files to store the logic for our view controllers, we need to add logic to them.
 
-First let's add button references, so that we can use the buttons to trigger things, like adding user locations. To do this, we have to go back to the Storyboard.
+First let's add button references [Xcode calls these Outlets], so that we can use the buttons to trigger things, like adding user locations. To do this, we have to go back to the Storyboard.
 
 _[sidenote: I added a clear button in the table view to delete all the locations]_
 
@@ -223,16 +222,310 @@ To add the Add button to our view controller, hold <kbd>ctrl</kbd> and drag the 
 
 Place the reference somewhere that is not within a method.
 
-You will be given the option to name your reference and change other characteristics about it. We want to leave it at the default values. Press **Connect**
+You will be given the option to name your reference and change other characteristics about it. We want to leave it at the default values. Press **Connect**.
 
 ![xcode-assistant-editor-button](img/xcode-assistant-editor-button-name.png)
 
+Add an outlet for the MapView as well. This will be important later on.
+
 Now, moving on to the Map View Controller, let's add a button so we can add the current location on screen while in the Map View. To do this, add a **Navigation Item** to the Map View. Once you do this, you can add a **Navigation Bar Item**.
 
-Now add the button reference the same way as before.
+Now add the button outlet for the Add button the same way as before.
+
+**Be careful:** if you delete the code for an outlet or action without also removing it from the Storyboard, you will get a Sigthread error, which can be very hard to track down. Make sure to not delete the outlet or action for a button in the swift files, unless you also delete it from Storyboard.
+
+![xcode-delete-reference](img/xcode-delete-reference.png)
+
+You can delete it by right clicking the button and pressing the 'x' next to the outlet/action name.
 
 ### Button Actions
 
 In order to define logic to be executed when a button is pressed, we need to define an action. This is done in a very similar way to how we added the button reference. Instead, this time when giving the reference a name, also change the Connection type to from Outlet to **Action**. This will create a method that is triggered when the button is pressed.
 
 ![xcode-add-action](img/xcode-add-action.png)
+
+## How to show user location in Map View
+
+In order to get the user location, we need to first asl the user's permission. This is done by Apple to ensure no app developers can get access to user data without consent.
+
+### Asking Permission
+
+To get a prompt to use the user's GPS location, we need to add a row to the info.plist. You can find this file on the **Project Navigator** on the left hand side. If it is collapsed, you can expand it with <kbd>command</kbd> + <kbd>0</kbd>.
+
+![xcode-infoplist](img/xcode-infoplist.png)
+
+Right click and select _Add Row_. Start typing the text below, it should autocomplete it though.
+
+`Privacy - Location When In Use Usage Description`
+ 
+ Add some text in the Value column. This is the message the user will see when they first go to the Map View. Add a simple message like "We need your location to show your position on the map".
+
+![xcode-gps-permission](img/xcode-gps-permission.png)
+
+Try running your app and see if you get the pop-up when you go to the Map View.
+
+### Showing the blue dot
+
+To show a blue dot showing where the user is, we need to add a few lines of code to the **MapViewController** Class.
+
+First add the following line to the top of the file,
+
+``` swift
+import UIKit    // this one should already be there
+import MapKit   // add this one
+```
+
+Make the class inheret from the **CLLocationManagerDelegate**, and add a **CLLocationManager**. This will manage the coordinates from the phone's sensors.
+
+``` swift
+class MapViewController: UIViewController, CLLocationManagerDelegate {
+
+    let locationManager = CLLocationManager()
+```
+
+Now we need to set up the location manager when the view loads.
+
+Go to the viewDidLoad method and add the following lines:
+
+``` swift
+/// this runs everytime the view is loaded
+override func viewDidLoad() {
+    super.viewDidLoad()
+
+    // sets up the delegate
+    locationManager.delegate = self
+    locationManager.desiredAccuracy = kCLLocationAccuracyBest
+    locationManager.requestWhenInUseAuthorization()
+    locationManager.startUpdatingLocation()
+    
+    // show user as blue dot
+    mapView.showsUserLocation = true
+}
+```
+
+Now try running your app.
+
+Add the following function, 
+
+``` swift
+/// Automatically updates the GPS location of user and where map is centred.
+/// This function is called by the system
+func locationManager(_ manager:CLLocationManager, didUpdateLocations locations:[CLLocation]) {
+    userLocation = locations[0]     // the last user location
+
+        // field of view, how zoomed in the map is
+        let mapSpan:MKCoordinateSpan = MKCoordinateSpanMake(0.02,0.02)
+
+        // centre map on the user
+        let region = MKCoordinateRegionMake(userLocation.coordinate,mapSpan)
+        self.mapView.setRegion(region, animated: true)  // animated will make make zoom in on location
+}
+```
+
+## Adding User's Location to Table View
+
+To add the user's location to the table view, we need to take the GPS position of the user, use that to get their address, and then we can store that along with their longitude and latitude.
+
+We can use the ReverseGeoCoder method to do this. The reverse geocoder, takes a gps coordinate and gets the address for that location.
+
+Add these two functions to the Map View Controller. The first function takes the a location, retrieves all the information, and creates a map pin.
+
+``` swift
+/// takes the CLLocation, and finds the placemark from reverse geocoder
+func getPlacemark(_ cllocation:CLLocation) {
+    CLGeocoder().reverseGeocodeLocation(cllocation, completionHandler: { (placemarks, error ) in
+
+        if error != nil || placemarks == nil || placemarks!.count == 0 {
+            print(error ?? "Unknown error in geocoder")
+            return
+        }
+
+        let place = placemarks![0] as CLPlacemark
+
+        // parse address and cordinates
+        let address = self.parseAddress(place)
+        let latitude = cllocation.coordinate.latitude
+        let longitude = cllocation.coordinate.longitude
+
+        // create map annotation
+        let annotation = MKPointAnnotation()
+        annotation.coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        annotation.title = address
+        self.mapView.addAnnotation(annotation)
+    })
+}
+```
+
+This function takes a CLLocation from the location manager from before, and then finds a placemark for this location. The placemark stores all the information like the street name, province, country, and various other data.
+
+Since this function is asynchronous, any function calls  inside it need to use the qualifier _self_. By making this function call asynchronous, the app won't appear slow when adding a user location since the app will continue to be responsive while it retrieves the location data.
+
+To parse this information I created a parseAddress function which simply finds the address number [subthoroughfare], street name [thoroughfare], and city [locality] and makes a simple string out of them.
+
+``` swift
+/// Parses location from CLPlacemark place and stores it in address
+func parseAddress(_ place: CLPlacemark) -> String {
+    var address = ""
+    var locality = place.locality ?? ""
+    var thoroughfare = place.thoroughfare ?? ""
+    var subThoroughfare = place.subThoroughfare ?? ""
+
+    // if all paramters are empty, only add country
+    if subThoroughfare == "" && thoroughfare == "" && locality == "" {
+        address = place.country ?? "No country or address found"
+        return address
+    }
+
+    // add space after section if not empty
+    if locality         != "" { locality += " " }
+    if thoroughfare     != "" { thoroughfare += " " }
+    if subThoroughfare  != "" { subThoroughfare += " " }
+
+    address = "\(subThoroughfare)\(thoroughfare)\(locality)"
+    print(address)
+    return address
+}
+```
+
+Try running the app and pressing the '+' button
+
+## Adding Map Pins on Long Press
+
+In order to add map pins when you long press on the screen, we need to set up a listener first, called a **UILongPressGestureRecognizer**. Add these lines of code to set it up in the **viewDidLoad** function.
+
+``` swift
+// allow long press to add map pin
+let uilpgr = UILongPressGestureRecognizer(target: self, action: #selector(MapVC.addLongPressLocation(_:)))
+mapView.addGestureRecognizer(uilpgr)
+uilpgr.minimumPressDuration = 0.35
+```
+
+We also need to add an action when a long press is held:
+
+``` swift
+/// add location where long press
+@IBAction func addLongPressLocation(_ sender: UILongPressGestureRecognizer) {
+
+    // gets location of long press relative to map
+    if (sender.state == UIGestureRecognizerState.began) {
+
+        let touchPoint = sender.location(in: mapView)
+        let newCoordinate = mapView.convert(touchPoint, toCoordinateFrom: mapView)
+
+        let pressed = CLLocation(latitude: newCoordinate.latitude, longitude: newCoordinate.longitude)
+
+        getPlacemark(pressed)
+    }
+}
+```
+
+Try running your app, and holding a long press. See if it creates a map pin of your location.
+
+## Showing Places in Table View
+
+Now that we are able to add locations to the map, we want to store these places to the Table View. First we need to store the address and coordinates in global arrays.
+
+`Global variables should be ignored but for this workshop we will use them for the sake of time. You should use CoreData instead — perhaps next workshop.`
+
+Add these three arrays outside one of the classes in the swift files. I placed mine above the Table View Controller class.
+
+``` swift
+var addresses:[String] = [String]()
+var longitudes:[Double] = [Double]()
+var latitudes:[Double] = [Double]()
+```
+
+### Storing values in Map View
+
+To add the values to these arrays, we need to store the values within the **reverve geocoder method**. This will ensure that they are saved after the values are retrieved and parsed.
+
+I added this line below the creation of the map annotation, but before the `})`.
+
+``` swift
+self.savePlace(address: address, longitude: longitude, latitude: latitude)
+```
+
+Now let's add thhe function definition:
+
+``` swift
+/// store place in arrays
+func savePlace(address:String, longitude:CLLocationDegrees, latitude:CLLocationDegrees) {
+    addresses.append(address)
+    longitudes.append(longitude)
+    latitudes.append(latitude)
+}
+```
+
+This function will add each place to the end of the array.
+
+If we want our map pins to show all of these locations, we can use the global arrays we just created. We can iterate through all the values in the arrays and add each coordinate with the address as the description.
+
+we can just reuse the logic in the reverse geocoder for the creation of the new map pins, except now we don't need to retreive the data.
+
+Let's create a new function called addMapPins(). Make sure to add this to the **ViewDidLoad** method, so that it populates all the map pins when it moves over from the table view. This will make it so that all the locations that are saved are rendered as map pins.
+
+``` swift
+/// Add Map Pins in locations array
+func addMapPins() {
+    for index in 0..<addresses.count {
+        let annotation = MKPointAnnotation()
+        let address = addresses[index]
+        let long = longitudes[index]
+        let lat = latitudes[index]
+
+        annotation.coordinate = CLLocationCoordinate2DMake(lat, long)
+        annotation.title = address
+        self.mapView.addAnnotation(annotation)
+    }
+}
+```
+
+### Displaying the values in Table View
+
+In order to populate each row in the Table View with each place, we will need to add a few functions to the **Table View Controller**.
+
+First we need to add the **viewWillAppear** function. This function by the system when the view is guaranteed to appear; we need because when we move back from the map view, we want it to refresh the table.
+
+``` swift
+override func viewWillAppear(_ animated: Bool) {
+    tableView.reloadData()
+}
+```
+
+Next we need to define how many rows we want in our table. We want one row per place, so we can just use the count of one of our arrays:
+
+``` swift
+/// Returns number of rows
+override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    return addresses.count
+}
+```
+
+In order to tell our app what information to put in each row, we need the following method:
+
+``` swift
+/// Populates rows with text
+override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+    let cell = tableView.dequeueReusableCell(withIdentifier: "place", for: indexPath)
+    let address = addresses[(indexPath as NSIndexPath).row]
+    cell.textLabel?.text = address
+
+    return cell
+}
+```
+
+## Adding more features
+
+So now we have a basic app that saves the user's location, or a long press on the map, but it is not perfect.
+
+How do you think we can make it better?
+
+- What if the user quits the app, do the places remain saved?
+- What if we try scrolling around the map?
+- How can we show a specific location by pressing it in the Table View?
+
+## The End
+
+Thank you for coming out to IEEE Carleton's Introductory iOS Workshop. I hope you learned how to start your app development career, and if you have any questions feel free to ask or pop by the Office in ME 3359 for help.
+
+I would appreciate if you would fill out this <a href="">feedback form</a> so we can make this workshop even better in the future.
