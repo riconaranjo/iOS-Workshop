@@ -528,4 +528,4 @@ How do you think we can make it better?
 
 Thank you for coming out to IEEE Carleton's Introductory iOS Workshop. I hope you learned how to start your app development career, and if you have any questions feel free to ask or pop by the Office in ME 3359 for help.
 
-I would appreciate if you would fill out this <a href="">feedback form</a> so we can make this workshop even better in the future.
+I would appreciate if you would fill out this <a href="https://goo.gl/forms/FGlyzu5OtXK4paxE2">feedback form</a> so we can make this workshop even better in the future.
